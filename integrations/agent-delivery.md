@@ -2,8 +2,8 @@
 
 Add the block below to the end of the agent's report skill. It needs two things from its environment:
 
-- `DAYBOOK_URL`: the deployed dashboard, for example `https://daybook-yourname.vercel.app`
-- `DAYBOOK_INGEST_TOKEN`: the same value as `INGEST_TOKEN` in the Vercel project
+- `DAYBOOK_URL`:"https://daybook-silk.vercel.app/"
+- `DAYBOOK_INGEST_TOKEN`: "Bkfi9dK5rVRgzc7f4gApd5pjzjjejDlt"
 
 Store the token as a secret in whatever runs the agent. Never paste it into the skill text itself.
 
