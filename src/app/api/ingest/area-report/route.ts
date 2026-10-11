@@ -2,7 +2,7 @@ import { after } from "next/server";
 import { bearerToken, secretsMatch } from "@/lib/auth";
 import { config } from "@/lib/config";
 import { IngestError, ingestReport, runExtraction } from "@/lib/ingest";
-import { StorageNotConfiguredError } from "@/lib/store";
+import { storageProblem } from "@/lib/store";
 import type { ReportEdition, ReportSource } from "@/lib/types";
 
 // Leaves room for the PDF read that runs after the response is sent.
@@ -86,7 +86,8 @@ export async function POST(request: Request) {
     });
   } catch (error) {
     if (error instanceof IngestError) return json(error.status, { error: error.message });
-    if (error instanceof StorageNotConfiguredError) return json(503, { error: error.message });
+    const problem = storageProblem(error);
+    if (problem) return json(503, { error: problem });
     throw error;
   }
 }

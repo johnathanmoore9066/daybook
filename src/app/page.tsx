@@ -9,7 +9,7 @@ import { TodayBlock } from "@/components/TodayBlock";
 import { WeekAgenda } from "@/components/WeekAgenda";
 import { WorkPanel } from "@/components/WorkPanel";
 import { loadDashboard } from "@/lib/dashboard";
-import { StorageNotConfiguredError } from "@/lib/store";
+import { storageProblem } from "@/lib/store";
 
 async function Dashboard() {
   await connection();
@@ -17,8 +17,9 @@ async function Dashboard() {
   try {
     d = await loadDashboard();
   } catch (error) {
-    if (!(error instanceof StorageNotConfiguredError)) throw error;
-    return <SetupNeeded message={error.message} />;
+    const problem = storageProblem(error);
+    if (!problem) throw error;
+    return <SetupNeeded message={problem} />;
   }
 
   return (

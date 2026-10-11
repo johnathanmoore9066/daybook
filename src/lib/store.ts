@@ -1,6 +1,6 @@
 import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { BlobPreconditionFailedError, del, get, put } from "@vercel/blob";
+import { BlobError, BlobNotFoundError, BlobPreconditionFailedError, del, get, put } from "@vercel/blob";
 import { config } from "./config";
 import { EMPTY_STATE, type State } from "./types";
 
@@ -25,16 +25,31 @@ interface Backend {
   deleteFiles(names: string[]): Promise<void>;
 }
 
+/**
+ * Passed explicitly so a custom-prefixed variable still works. The read-write token wins when both
+ * exist because it doesn't depend on the request context, which background work like `after()` lacks.
+ */
+function blobAuth() {
+  return config.blobToken ? { token: config.blobToken } : { storeId: config.blobStoreId ?? undefined };
+}
+
 const blobBackend: Backend = {
   kind: "blob",
   async read() {
-    const result = await get(STATE_PATH, { access: config.blobAccess, useCache: false });
-    if (!result || result.statusCode !== 200) return { state: null, etag: null };
-    return { state: await new Response(result.stream).json(), etag: result.blob.etag };
+    try {
+      const result = await get(STATE_PATH, { ...blobAuth(), access: config.blobAccess, useCache: false });
+      if (!result || result.statusCode !== 200) return { state: null, etag: null };
+      return { state: await new Response(result.stream).json(), etag: result.blob.etag };
+    } catch (error) {
+      // A brand-new store has no state file yet.
+      if (error instanceof BlobNotFoundError) return { state: null, etag: null };
+      throw error;
+    }
   },
   async write(json, etag) {
     try {
       await put(STATE_PATH, json, {
+        ...blobAuth(),
         access: config.blobAccess,
         contentType: "application/json",
         addRandomSuffix: false,
@@ -53,6 +68,7 @@ const blobBackend: Backend = {
   },
   async putFile(name, bytes, contentType) {
     await put(`${PREFIX}/${name}`, Buffer.from(bytes), {
+      ...blobAuth(),
       access: config.blobAccess,
       contentType,
       addRandomSuffix: false,
@@ -60,12 +76,12 @@ const blobBackend: Backend = {
     });
   },
   async getFile(name) {
-    const result = await get(`${PREFIX}/${name}`, { access: config.blobAccess });
+    const result = await get(`${PREFIX}/${name}`, { ...blobAuth(), access: config.blobAccess });
     if (!result || result.statusCode !== 200) return null;
     return { stream: result.stream, contentType: result.blob.contentType, size: result.blob.size };
   },
   async deleteFiles(names) {
-    if (names.length) await del(names.map((n) => `${PREFIX}/${n}`));
+    if (names.length) await del(names.map((n) => `${PREFIX}/${n}`), blobAuth());
   },
 };
 
@@ -120,18 +136,42 @@ const localBackend: Backend = {
 };
 
 export function storageKind(): "blob" | "local" | "missing" {
-  if (config.blobToken) return "blob";
+  if (config.blobToken || config.blobStoreId) return "blob";
   return config.onVercel ? "missing" : "local";
+}
+
+export function blobAuthMode(): "token" | "oidc" | null {
+  if (config.blobToken) return "token";
+  return config.blobStoreId ? "oidc" : null;
 }
 
 function backend(): Backend {
   const kind = storageKind();
   if (kind === "missing") {
     throw new StorageNotConfiguredError(
-      "No storage is connected. Add a Vercel Blob store to this project so BLOB_READ_WRITE_TOKEN is set.",
+      "This deployment can't see a Blob store. It looks for BLOB_READ_WRITE_TOKEN or BLOB_STORE_ID.",
     );
   }
   return kind === "blob" ? blobBackend : localBackend;
+}
+
+/** A readable explanation when a storage call fails for setup reasons, or null for other errors. */
+export function storageProblem(error: unknown): string | null {
+  if (error instanceof StorageNotConfiguredError) return error.message;
+  if (error instanceof BlobError) return `Vercel Blob refused the request: ${error.message}`;
+  return null;
+}
+
+/** Reads the state once to prove storage works, for the setup page. */
+export async function checkStorage(): Promise<{ ok: true } | { ok: false; message: string }> {
+  try {
+    await readState();
+    return { ok: true };
+  } catch (error) {
+    const message = storageProblem(error);
+    if (message) return { ok: false, message };
+    return { ok: false, message: error instanceof Error ? error.message : "Unknown storage error." };
+  }
 }
 
 function normalize(raw: unknown): State {

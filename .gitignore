@@ -43,4 +43,3 @@ next-env.d.ts
 # local
 .data
 !.env.example
-agent-delivery.md

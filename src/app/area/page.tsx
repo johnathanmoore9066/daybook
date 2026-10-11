@@ -13,7 +13,7 @@ import { config } from "@/lib/config";
 import { describeDay, formatTime, todayIn } from "@/lib/dates";
 import { BUSY_LABEL, formatBytes, formatReceived } from "@/lib/format";
 import { isClosed } from "@/lib/schedule";
-import { readState, StorageNotConfiguredError } from "@/lib/store";
+import { readState, storageProblem } from "@/lib/store";
 import type { AreaReport, Extraction, State } from "@/lib/types";
 
 export const metadata: Metadata = { title: "Area report · Daybook" };
@@ -47,8 +47,9 @@ async function AreaContent() {
   try {
     state = await readState();
   } catch (error) {
-    if (!(error instanceof StorageNotConfiguredError)) throw error;
-    return <SetupNeeded message={error.message} />;
+    const problem = storageProblem(error);
+    if (!problem) throw error;
+    return <SetupNeeded message={problem} />;
   }
 
   const today = todayIn(config.tz);

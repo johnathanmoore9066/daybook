@@ -4,9 +4,9 @@ import { Suspense } from "react";
 import { Loading } from "@/components/Loading";
 import { Masthead } from "@/components/Masthead";
 import { UploadForm } from "@/components/UploadForm";
-import { config, gateMode } from "@/lib/config";
+import { blobEnvNames, config, gateMode } from "@/lib/config";
 import { EXTRACTION_MODEL } from "@/lib/extract";
-import { storageKind } from "@/lib/store";
+import { blobAuthMode, checkStorage, storageKind } from "@/lib/store";
 
 export const metadata: Metadata = { title: "Setup · Daybook" };
 
@@ -20,18 +20,29 @@ async function SetupContent() {
   const endpoint = `${origin}/api/ingest/area-report`;
 
   const storage = storageKind();
+  const check = storage === "missing" ? null : await checkStorage();
+  const seen = blobEnvNames();
   const gate = gateMode();
   const rows: Row[] = [
     {
       label: "Storage",
-      ok: storage !== "missing",
+      ok: check?.ok === true,
       value:
-        storage === "blob"
-          ? `Vercel Blob (${config.blobAccess})`
-          : storage === "local"
-            ? "Local .data folder (dev only)"
+        storage === "local"
+          ? "Local .data folder (dev only)"
+          : storage === "blob"
+            ? `Vercel Blob, ${config.blobAccess}, signed in with ${
+                blobAuthMode() === "token" ? "a read-write token" : "its store ID"
+              }${check?.ok ? ". Read test passed." : ". Read test failed."}`
             : "Not connected",
-      fix: "Vercel > Storage > Create Blob store (Private) > Connect to this project.",
+      fix:
+        storage === "missing"
+          ? `Found no BLOB_READ_WRITE_TOKEN or BLOB_STORE_ID. Blob-related variables this deployment can see: ${
+              seen.length ? seen.join(", ") : "none"
+            }. In Vercel, connect the store to this project with Production checked, then redeploy.`
+          : check && !check.ok
+            ? `${check.message} If the store was created as Public, set BLOB_ACCESS=public and redeploy.`
+            : undefined,
     },
     {
       label: "Login",
